@@ -11,13 +11,18 @@ import AVFoundation
 
 class CameraViewController: UIViewController {
 
-    
     lazy private var captureSession = AVCaptureSession()
-
+    lazy private var fileOutput = AVCaptureMovieFileOutput()
+    
+    private var player: AVPlayer! // It's an optional , but we're treating as a non-optional
+    // We're promising that we'll initialize before we use it
+    
+    
     @IBOutlet var recordButton: UIButton!
     @IBOutlet var cameraView: CameraPreviewView!
 
-
+    //MARK:- View Life Cycle
+    
 	override func viewDidLoad() {
 		super.viewDidLoad()
 
@@ -25,8 +30,12 @@ class CameraViewController: UIViewController {
 		cameraView.videoPlayerView.videoGravity = .resizeAspectFill
         
         setUpCaptureSession()
+        
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTapGesture(_:)))
+        view.addGestureRecognizer(tapGesture)
+        
 	}
-    
+  
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         captureSession.startRunning()
@@ -37,6 +46,30 @@ class CameraViewController: UIViewController {
         captureSession.stopRunning()
     }
     
+    private func bestAudio() -> AVCaptureDevice {
+        if let device = AVCaptureDevice.default(for: .audio) {  return device   }
+        
+        fatalError("No audio")
+    }
+    
+    @objc func handleTapGesture(_ tapGesture: UITapGestureRecognizer) {
+           print("Tap")
+        switch tapGesture.state {
+            case .ended:
+           replayMovie()
+             default:
+            break
+        }
+        
+       }
+    
+    private func replayMovie() {
+        guard let player  = player else  { return }
+        // 30 FPS, 60 FPS, 24 Frame Per Second
+        
+        player.seek(to: .zero) // CMTime
+        player.play()
+    }
     
     private func setUpCaptureSession() {
     
@@ -56,14 +89,19 @@ class CameraViewController: UIViewController {
             
         }
         // Audio
-        
+        let microphone = bestAudio()
+        guard let audioInput = try? AVCaptureDeviceInput(device: microphone),
+            captureSession.canAddInput(audioInput) else { fatalError("Can't create microphone input") }
+            captureSession.addInput(audioInput)
         // Video
-        
-        // Audio
         
         
         // Recording to disk
-        
+        guard captureSession.canAddOutput(fileOutput) else {
+            fatalError("Cannot record to disk")
+        }
+        captureSession.addOutput(fileOutput)
+
         captureSession.commitConfiguration()
         
          // Live preview
@@ -84,7 +122,12 @@ class CameraViewController: UIViewController {
     }
 
     @IBAction func recordButtonPressed(_ sender: Any) {
-
+        if fileOutput.isRecording {
+            fileOutput.stopRecording()
+            // Future: Play with pausing using another button
+        } else {
+            fileOutput.startRecording(to: newRecordingURL(), recordingDelegate: self)
+        }
 	}
 	
 	/// Creates a new file URL in the documents directory
@@ -98,5 +141,48 @@ class CameraViewController: UIViewController {
 		let fileURL = documentsDirectory.appendingPathComponent(name).appendingPathExtension("mov")
 		return fileURL
 	}
+    private func updateViews() {
+        recordButton.isSelected = fileOutput.isRecording
+    }
+    
+    private func playMovie(url: URL) {
+        player = AVPlayer(url: url)
+        
+        let playerLayer = AVPlayerLayer(player: player)
+        
+        // top left corner
+        var topRect = view.bounds
+        topRect.size.height = topRect.size.height / 4
+        topRect.size.width = topRect.size.width / 4 // create a constant for the magic number
+        topRect.origin.y = view.layoutMargins.top
+        
+        playerLayer.frame = topRect
+        view.layer.addSublayer(playerLayer)
+        
+        player.play()
+    }
+    
+  
 }
 
+extension CameraViewController: AVCaptureFileOutputRecordingDelegate {
+    
+    func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
+        print("didFinishRecording")
+        if let error = error {
+            print("Video Recording Error: \(error)")
+        } else {
+            
+          playMovie(url: outputFileURL)
+        }
+          updateViews()
+    }
+    
+    func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
+        // Update UI
+        print("didStartRecording: \(fileURL)")
+        updateViews()
+    }
+    
+    
+}
