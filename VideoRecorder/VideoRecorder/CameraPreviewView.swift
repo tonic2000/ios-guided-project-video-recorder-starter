@@ -9,6 +9,8 @@
 import UIKit
 import AVFoundation
 
+// Reuse on Sprint Challenge
+
 class CameraPreviewView: UIView {
     
     override class var layerClass: AnyClass {
